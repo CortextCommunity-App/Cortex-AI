@@ -1,0 +1,26 @@
+# Virtual environment (installed packages / libraries)
+venv/
+env/
+.venv/
+
+# Byte-compiled / cache files
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Chroma vector databases & data
+chroma_data/
+chroma_advanced_db/
+*.sqlite3
+
+# Agent temporary folders & IDE caches
+.agents/
+.claude/
+.vscode/
+.idea/
+
+# Environment variables & temp uploads
+.env
+temp_*
+uploads_*
