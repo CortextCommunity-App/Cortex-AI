@@ -17,10 +17,12 @@ chroma_advanced_db/
 # Agent temporary folders & IDE caches
 .agents/
 .claude/
-.vscode/
 .idea/
 
 # Environment variables & temp uploads
-.env
 temp_*
 uploads_*
+
+.dockerignore
+config.bat
+node_modules

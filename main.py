@@ -1,15 +1,27 @@
 import base64
 import os
 import re
+import socket
 import tempfile
 from collections import defaultdict, deque
 from pathlib import Path
 from threading import RLock
 from typing import Any
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+
+# Force IPv4 resolution for host/localhost connections to prevent [Errno 101] Network is unreachable on Docker
+_orig_getaddrinfo = socket.getaddrinfo
+
+def _ipv4_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    if host in ("host.docker.internal", "localhost", "127.0.0.1"):
+        return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+    return _orig_getaddrinfo(host, port, family, type, proto, flags)
+
+socket.getaddrinfo = _ipv4_getaddrinfo
 
 from langchain_chroma import Chroma
 from langchain_classic.retrievers import EnsembleRetriever
@@ -40,6 +52,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"AI Engine internal error: {str(exc)}"},
+        headers={"Access-Control-Allow-Origin": "*"},
+    )
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
@@ -73,8 +93,8 @@ vision_llm = ChatOllama(
     temperature=0.1,
 )
 
-CHROMA_DIR = "./chroma_data"
-COLLECTION_NAME = "cortex_knowledge"
+CHROMA_DIR = os.getenv("CHROMA_DIR", "./chroma_data")
+COLLECTION_NAME = os.getenv("COLLECTION_NAME", "cortex_knowledge")
 
 vector_store = Chroma(
     collection_name=COLLECTION_NAME,
@@ -553,8 +573,14 @@ def agent_ask(request: AgentQueryRequest):
         }
 
     except Exception as error:
-        fallback_resp = active_llm.invoke(messages)
-        fallback_ans = sanitize_model_output(str(fallback_resp.content))
+        try:
+            fallback_resp = active_llm.invoke(messages)
+            fallback_ans = sanitize_model_output(str(fallback_resp.content))
+        except Exception as fallback_error:
+            fallback_ans = (
+                f"I encountered a temporary communication issue with the local AI model: {fallback_error}. "
+                "Please make sure the local Ollama service is running and accessible."
+            )
         save_conversation_turn(request.session_id, user_query, fallback_ans)
         return {
             "answer": fallback_ans,
